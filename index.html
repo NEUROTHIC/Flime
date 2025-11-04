@@ -1,7 +1,8 @@
 <script>
     class FlimeMessenger {
         constructor() {
-            this.GOOGLE_CLIENT_ID = 'ваш_google_client_id.apps.googleusercontent.com'; // Нужно получить в Google Cloud Console
+            // Ваш реальный Google Client ID
+            this.GOOGLE_CLIENT_ID = '760662462316-asoimf8g3nsbbq32oqc4359jeqhunc80.apps.googleusercontent.com';
             this.init();
         }
 
@@ -69,6 +70,7 @@
             this.isAuthenticated = false;
             this.userData = null;
             this.googleAuth = null;
+            this.allUsers = new Set(); // Для хранения всех юзернеймов
         }
 
         // Данные чатов
@@ -97,7 +99,7 @@
                 status: 'Был недавно',
                 avatar: 'fas fa-code',
                 canCall: true,
-                username: '@developer',
+                username: '@dev',
                 email: 'dev@flime.com'
             }
         };
@@ -120,6 +122,23 @@
             ]
         };
 
+        // Генератор случайных юзернеймов (7 символов: англ + цифры)
+        generateUsername() {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let username = '';
+            
+            do {
+                username = '';
+                for (let i = 0; i < 7; i++) {
+                    username += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                username = '@' + username;
+            } while (this.allUsers.has(username)); // Проверяем уникальность
+            
+            this.allUsers.add(username);
+            return username;
+        }
+
         loadGoogleAuthSDK() {
             // Загружаем Google Auth SDK
             const script = document.createElement('script');
@@ -131,12 +150,17 @@
         }
 
         initializeGoogleAuth() {
-            // Инициализация Google Auth
-            this.googleAuth = google.accounts.oauth2.initTokenClient({
-                client_id: this.GOOGLE_CLIENT_ID,
-                scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-                callback: (response) => this.handleGoogleAuth(response),
-            });
+            try {
+                // Инициализация Google Auth
+                this.googleAuth = google.accounts.oauth2.initTokenClient({
+                    client_id: this.GOOGLE_CLIENT_ID,
+                    scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+                    callback: (response) => this.handleGoogleAuth(response),
+                });
+            } catch (error) {
+                console.log('Google Auth SDK не загружен, используем демо-режим');
+                this.showNotification('Используется демо-режим авторизации', 'info');
+            }
         }
 
         setupEventListeners() {
@@ -193,6 +217,18 @@
 
             window.addEventListener('resize', () => this.handleWindowResize());
             window.addEventListener('beforeunload', () => this.cleanup());
+
+            // Инициализируем существующие юзернеймы
+            this.initializeExistingUsernames();
+        }
+
+        initializeExistingUsernames() {
+            // Добавляем существующие юзернеймы в Set для уникальности
+            Object.values(this.chatData).forEach(contact => {
+                if (contact.username) {
+                    this.allUsers.add(contact.username);
+                }
+            });
         }
 
         initializeApp() {
@@ -206,7 +242,8 @@
             if (this.googleAuth) {
                 this.googleAuth.requestAccessToken();
             } else {
-                this.showNotification('Ошибка загрузки Google Auth', 'error');
+                // Демо-режим если Google Auth не доступен
+                this.demoAuth();
             }
         }
 
@@ -231,20 +268,36 @@
                 
                 this.userData = {
                     id: profileData.id,
-                    firstName: profileData.given_name,
-                    lastName: profileData.family_name,
-                    fullName: profileData.name,
+                    firstName: profileData.given_name || 'User',
+                    lastName: profileData.family_name || '',
+                    fullName: profileData.name || 'Google User',
                     email: profileData.email,
                     photo: profileData.picture,
-                    username: '@' + (profileData.email.split('@')[0])
+                    username: this.generateUsername() // Генерируем случайный юзернейм
                 };
 
                 this.handleSuccessfulAuth(accessToken);
                 
             } catch (error) {
                 console.error('Ошибка получения данных Google:', error);
-                this.showNotification('Ошибка загрузки данных пользователя', 'error');
+                // Если ошибка - используем демо-авторизацию
+                this.demoAuth();
             }
+        }
+
+        // Демо-авторизация если Google не работает
+        demoAuth() {
+            this.userData = {
+                id: 'demo-' + Date.now(),
+                firstName: 'Demo',
+                lastName: 'User',
+                fullName: 'Demo User',
+                email: 'demo@flime.com',
+                username: this.generateUsername()
+            };
+            
+            this.handleSuccessfulAuth('demo-token');
+            this.showNotification('Демо-авторизация успешна!', 'success');
         }
 
         handleSuccessfulAuth(accessToken) {
@@ -256,62 +309,49 @@
             
             if (this.userData.photo) {
                 this.userAvatar.innerHTML = `<img src="${this.userData.photo}" style="width: 100%; height: 100%; border-radius: 50%;" alt="Avatar">`;
+            } else {
+                this.userAvatar.innerHTML = '<i class="fas fa-user"></i>';
             }
 
-            this.authStatus.textContent = `Авторизован как ${this.userData.fullName}`;
+            this.authStatus.textContent = `Авторизован как ${this.userData.username}`;
             
-            // Добавляем контакты из Google (имитация)
-            this.addGoogleContacts();
+            // Добавляем случайных пользователей
+            this.addRandomUsers();
             
             // Сохраняем данные
             localStorage.setItem('google_access_token', accessToken);
             localStorage.setItem('user_data', JSON.stringify(this.userData));
         }
 
-        addGoogleContacts() {
-            // Имитируем контакты из Google
-            const googleContacts = [
-                {
-                    id: 'google_1',
-                    name: 'Анна Петрова',
-                    status: 'В сети',
-                    avatar: 'fas fa-user-friends',
+        addRandomUsers() {
+            // Добавляем 5 случайных пользователей
+            const randomAvatars = ['fas fa-user-friends', 'fas fa-user-tie', 'fas fa-user-graduate', 'fas fa-user-md', 'fas fa-user-ninja'];
+            const statuses = ['В сети', 'Был недавно', 'Был 2 ч. назад', 'Был 5 ч. назад', 'Не в сети'];
+            
+            for (let i = 0; i < 5; i++) {
+                const userId = 'user_' + Date.now() + '_' + i;
+                const username = this.generateUsername();
+                
+                this.chatData[userId] = {
+                    id: userId,
+                    name: `Пользователь ${i + 1}`,
+                    status: statuses[Math.floor(Math.random() * statuses.length)],
+                    avatar: randomAvatars[Math.floor(Math.random() * randomAvatars.length)],
                     canCall: true,
-                    username: '@annapetrova',
-                    email: 'anna@example.com'
-                },
-                {
-                    id: 'google_2', 
-                    name: 'Максим Иванов',
-                    status: 'Был в сети 2 ч. назад',
-                    avatar: 'fas fa-user-tie',
-                    canCall: true,
-                    username: '@maximivanov',
-                    email: 'maxim@example.com'
-                },
-                {
-                    id: 'google_3',
-                    name: 'Елена Сидорова',
-                    status: 'В сети',
-                    avatar: 'fas fa-user-graduate',
-                    canCall: true,
-                    username: '@elenasidorova',
-                    email: 'elena@example.com'
-                }
-            ];
+                    username: username,
+                    email: `user${i + 1}@example.com`
+                };
 
-            googleContacts.forEach(contact => {
-                this.chatData[contact.id] = contact;
-                if (!this.chatMessages[contact.id]) {
-                    this.chatMessages[contact.id] = [
+                if (!this.chatMessages[userId]) {
+                    this.chatMessages[userId] = [
                         { 
-                            text: `Привет! Я ${contact.name}. Рад(а) общению!`, 
+                            text: `Привет! Я новый пользователь Flime!`, 
                             isSent: false, 
-                            timestamp: Date.now() - 1800000 
+                            timestamp: Date.now() - Math.random() * 86400000 
                         }
                     ];
                 }
-            });
+            }
 
             this.renderContacts();
         }
@@ -332,8 +372,8 @@
                     this.userAvatar.innerHTML = `<img src="${this.userData.photo}" style="width: 100%; height: 100%; border-radius: 50%;" alt="Avatar">`;
                 }
 
-                this.authStatus.textContent = `Авторизован как ${this.userData.fullName}`;
-                this.addGoogleContacts();
+                this.authStatus.textContent = `Авторизован как ${this.userData.username}`;
+                this.addRandomUsers();
             }
         }
 
@@ -342,7 +382,7 @@
             this.userData = null;
             
             // Выход из Google
-            if (this.googleAuth) {
+            if (this.googleAuth && localStorage.getItem('google_access_token') !== 'demo-token') {
                 google.accounts.oauth2.revoke(localStorage.getItem('google_access_token'));
             }
             
@@ -354,9 +394,9 @@
             this.authStatus.textContent = 'Не авторизован';
             this.userAvatar.innerHTML = '<i class="fas fa-user"></i>';
             
-            // Удаляем Google контакты
+            // Удаляем случайных пользователей
             Object.keys(this.chatData).forEach(key => {
-                if (key.startsWith('google_')) {
+                if (key.startsWith('user_')) {
                     delete this.chatData[key];
                 }
             });
@@ -399,12 +439,12 @@
             
             // Автоматически открываем Meet через 2 секунды
             setTimeout(() => {
-                window.open(meetUrl, '_blank');
+                window.open(meetUrl, '_blank', 'width=1000,height=700');
             }, 2000);
         }
 
         generateMeetCode() {
-            // Генерируем случайный код для Meet
+            // Генерируем случайный код для Meet (12 символов + -flm)
             const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
             let result = '';
             for (let i = 0; i < 12; i++) {
@@ -433,21 +473,7 @@
             this.callInterval = setInterval(() => this.updateCallTimer(), 1000);
         }
 
-        updateCallTimer() {
-            const minutes = Math.floor(this.callSeconds / 60);
-            const secs = this.callSeconds % 60;
-            this.callTimer.textContent = `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-            this.callSeconds++;
-        }
-
-        clearCallInterval() {
-            if (this.callInterval) {
-                clearInterval(this.callInterval);
-                this.callInterval = null;
-            }
-        }
-
-        // Остальные методы (поиск, сообщения, UI) остаются без изменений
+        // ПОИСК ПО ЮЗЕРНЕЙМУ
         handleSearch() {
             const query = this.searchField.value.trim().toLowerCase();
             this.searchResults.innerHTML = '';
@@ -457,6 +483,7 @@
                 return;
             }
 
+            // Ищем по юзернейму, имени или email
             const results = Object.values(this.chatData).filter(contact => 
                 (contact.username && contact.username.toLowerCase().includes(query)) ||
                 (contact.name && contact.name.toLowerCase().includes(query)) ||
@@ -467,9 +494,20 @@
                 results.forEach(contact => {
                     const resultItem = document.createElement('div');
                     resultItem.className = 'search-result-item';
+                    let highlight = '';
+                    
+                    if (contact.username && contact.username.toLowerCase().includes(query)) {
+                        const startIndex = contact.username.toLowerCase().indexOf(query);
+                        highlight = contact.username.substring(0, startIndex) + 
+                                  '<mark>' + contact.username.substring(startIndex, startIndex + query.length) + '</mark>' +
+                                  contact.username.substring(startIndex + query.length);
+                    } else {
+                        highlight = contact.username;
+                    }
+                    
                     resultItem.innerHTML = `
                         <div><strong>${contact.name}</strong></div>
-                        <div class="username-tag">${contact.username}</div>
+                        <div class="username-tag">${highlight}</div>
                         <div style="font-size: 12px; color: var(--text-secondary);">${contact.status}</div>
                     `;
                     resultItem.addEventListener('click', () => {
@@ -489,6 +527,7 @@
             }
         }
 
+        // Остальные методы без изменений
         autoResizeTextarea() {
             this.messageInput.style.height = 'auto';
             const newHeight = Math.min(this.messageInput.scrollHeight, 120);
@@ -629,6 +668,20 @@
 
             if (window.innerWidth <= 768) {
                 this.toggleSidebar(false);
+            }
+        }
+
+        updateCallTimer() {
+            const minutes = Math.floor(this.callSeconds / 60);
+            const secs = this.callSeconds % 60;
+            this.callTimer.textContent = `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+            this.callSeconds++;
+        }
+
+        clearCallInterval() {
+            if (this.callInterval) {
+                clearInterval(this.callInterval);
+                this.callInterval = null;
             }
         }
 
